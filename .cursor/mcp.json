@@ -1,0 +1,34 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schema/2025-06-18/schema.json",
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "S:/testing-viral/ma2"],
+      "type": "stdio",
+      "description": "Read, write, and search the workspace. Backs repo-analyzer's Read/Grep/Glob needs on engines without native file tools.",
+      "tools": ["read_file", "read_text_file", "read_multiple_files", "write_file", "edit_file", "create_directory", "list_directory", "directory_tree", "search_files", "get_file_info"]
+    },
+    "shell-commands": {
+      "command": "npx",
+      "args": ["-y", "@g0t4/mcp-server-commands"],
+      "type": "stdio",
+      "description": "Execute shell commands. Backs verifier's Bash need (npm/pnpm/yarn test, lint, build) and repo-analyzer inspection commands.",
+      "tools": ["execute_command", "execute_script"]
+    },
+    "fetch": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-fetch"],
+      "type": "stdio",
+      "description": "Fetch web documentation. Used to resolve Node.js/TypeScript framework questions against official docs.",
+      "tools": ["fetch", "search"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "type": "stdio",
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}" },
+      "description": "OPTIONAL vendor-agnostic extension. Repository, issue, PR, and code search. Requires a GitHub PAT in your environment.",
+      "tools": ["search_repositories", "search_issues", "search_code", "get_repository", "get_issue", "get_pull_request"]
+    }
+  }
+}
