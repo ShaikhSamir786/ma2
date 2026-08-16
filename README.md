@@ -20,7 +20,7 @@ via filesystem links.
 | MCP config (canonical) | `ai-agent/mcp.json` | 1 |
 | Global context (canonical) | `ai-agent/rules.md` | 1 |
 | Suite docs | `ai-agent/README.md`, this file | 2 |
-| Platform adapters | `.claude/skills/` (junction), `.cursor/mcp.json` (hardlink), `CLAUDE.md` (hardlink) | 3 links, 0 copies |
+| Platform adapters | `.claude/skills/` (junction), `.cursor/mcp.json` (hardlink), `.mcp.json` (hardlink), `CLAUDE.md` (hardlink), `opencode.jsonc` (config shim) | 5 links/shims, 0 copies |
 
 ---
 
@@ -228,6 +228,35 @@ Pointer file. The canonical global context for this workspace lives in
 The `ai-agent/` folder is the single physical home of all content. Platform
 folders only **link** to it — zero copies, zero drift.
 
+Final adapter layout (this repo):
+
+```
+root/
+├── AGENTS.md          pointer → ai-agent/rules.md        (opencode, Cursor-compatible)
+├── CLAUDE.md          hardlink → AGENTS.md               (Claude Code)
+├── .mcp.json          hardlink → ai-agent/mcp.json       (Claude Code MCP)
+├── opencode.jsonc     project config, `mcp` block        (opencode MCP)
+├── .claude/skills/    junction → ai-agent/skills         (Claude Code + opencode skills)
+└── .cursor/mcp.json   hardlink → ai-agent/mcp.json       (Cursor MCP)
+```
+
+Key facts about the loaders (verified against official docs):
+
+- **Rules/context is pointer-able**: every tool auto-loads a root file
+  (`AGENTS.md` / `CLAUDE.md`) that can point to `ai-agent/rules.md`.
+- **Skill loaders scan fixed paths only** — no config option to redirect:
+  Claude Code: `.claude/skills/` or `~/.claude/skills/` only. opencode:
+  `.opencode/skills/`, `.claude/skills/`, or `.agents/skills/`. Cursor: own
+  skills UI. `.claude/skills/` is the cross-tool standard path (Claude Code +
+  opencode both scan it), which is why the junction there serves two tools.
+- **MCP must be registered per tool before the session starts** — a model
+  cannot "read" `mcp.json` into existence. Each tool needs its own config file:
+  Claude Code reads `.mcp.json` at root; Cursor reads `.cursor/mcp.json`;
+  opencode reads the `mcp` key of `opencode.jsonc`. The first two share the
+  Claude-style `mcpServers` schema (so they hardlink the same canonical file);
+  opencode uses `type: "local"` + `command` arrays + `environment`, so it needs
+  its own small shim (a config, not content).
+
 ### The rules on Windows (PowerShell 5.1, NTFS)
 
 | Link type | PowerShell | Admin needed? | Good for |
@@ -251,6 +280,26 @@ New-Item -ItemType HardLink -Path "$root\.cursor\mcp.json" -Target "$root\ai-age
 
 # file hardlink: Claude Code loads CLAUDE.md
 New-Item -ItemType HardLink -Path "$root\CLAUDE.md" -Target "$root\AGENTS.md"
+
+# file hardlink: Claude Code reads project MCP from .mcp.json at the repo root
+New-Item -ItemType HardLink -Path "$root\.mcp.json" -Target "$root\ai-agent\mcp.json"
+```
+
+**opencode MCP** uses a different schema (`type: "local"`, `command` as an
+array, `environment` instead of `env`), so it gets a small config shim at the
+root instead of a hardlink — a config file, not duplicated content:
+
+```jsonc
+// opencode.jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "filesystem":     { "type": "local", "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "S:/testing-viral/ma2"] },
+    "shell-commands": { "type": "local", "command": ["npx", "-y", "@g0t4/mcp-server-commands"] },
+    "fetch":          { "type": "local", "command": ["npx", "-y", "@modelcontextprotocol/server-fetch"] },
+    "github":         { "type": "local", "command": ["npx", "-y", "@modelcontextprotocol/server-github"], "environment": { "GITHUB_PERSONAL_ACCESS_TOKEN": "{env:GITHUB_TOKEN}" } }
+  }
+}
 ```
 
 ### The failure we hit (learn from this)
@@ -316,12 +365,21 @@ Get-Content -Raw "ai-agent\mcp.json" | ConvertFrom-Json | Out-Null
 (Get-ChildItem ".claude\skills" -Directory).Name   # = ai-agent/skills listing
 
 # 3. Links are links, not copies (link target check)
-Get-Item ".claude\skills", ".cursor\mcp.json", "CLAUDE.md" | Select Name, LinkType, Target
+Get-Item ".claude\skills", ".cursor\mcp.json", ".mcp.json", "CLAUDE.md" | Select Name, LinkType, Target
 
 # 4. Global context chain intact
 Get-Content "AGENTS.md"      # pointer
 Get-Content "ai-agent\rules.md"  # canonical
+
+# 5. MCP registers per tool (start a session, then)
+claude mcp list       # Claude Code: 4 servers (filesystem, shell-commands, fetch, github)
+opencode mcp list     # opencode: same 4
 ```
+
+Note: the first time Claude Code opens this repo it shows a workspace-trust
+prompt to approve the project-scoped `.mcp.json` servers — expected, not an
+error. The `github` server stays inert until `GITHUB_TOKEN` is set in your
+environment.
 
 ---
 
@@ -381,6 +439,8 @@ Use this as your checklist next time:
 S:\testing-viral\ma2\
 ├── AGENTS.md                 pointer → ai-agent/rules.md
 ├── CLAUDE.md                 hardlink → AGENTS.md
+├── .mcp.json                 hardlink → ai-agent/mcp.json (Claude Code MCP)
+├── opencode.jsonc            opencode project config (mcp block, opencode schema)
 ├── ai-agent/                 canonical source of truth
 │   ├── rules.md              full global context
 │   ├── mcp.json              MCP servers (filesystem, shell-commands, fetch, github)
@@ -389,7 +449,7 @@ S:\testing-viral\ma2\
 │   ├── skills/               15 × <name>/SKILL.md (DBS format)
 │   └── agents/               repo-analyzer.md, verifier.md
 ├── .claude/
-│   └── skills/               junction → ai-agent/skills
+│   └── skills/               junction → ai-agent/skills (Claude Code + opencode)
 └── .cursor/
     └── mcp.json              hardlink → ai-agent/mcp.json
 ```
